@@ -49,13 +49,13 @@ struct Window {
   int height() { return mHeight; }
   float ratio() { return (float)mWidth / mHeight; }
 
-  Window() {}
+  Window() = default;
 
   // Create a Window Context
   template <class APPLICATION>
   void create(APPLICATION *app, int w, int h, const char *name = "demo") {
 
-    interface.app = app;
+    user::Interface::app = app;
 
     mWidth = w;
     mHeight = h;
