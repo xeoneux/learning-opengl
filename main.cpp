@@ -30,11 +30,17 @@ using namespace user;
 /*-----------------------------------------------------------------------------
  *  SOME SHADER CODE
  *-----------------------------------------------------------------------------*/
-const char *vert =
-    GLSL(120, attribute vec4 position; void main() { gl_Position = position; });
+const char *vert = GLSL(120, attribute vec4 position; attribute vec4 color;
+                        varying vec4 dstColor;
 
-const char *frag =
-    GLSL(120, void main() { gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); });
+                        void main() {
+                          dstColor = color;
+                          gl_Position = position;
+                        });
+
+const char *frag = GLSL(120, varying vec4 dstColor;
+
+                        void main() { gl_FragColor = dstColor; });
 
 /*-----------------------------------------------------------------------------
  *  FUNCTION TO CHECK FOR SHADER COMPILER ERRORS
@@ -77,12 +83,28 @@ void shaderLinkCheck(GLuint ID) {
 }
 
 /*-----------------------------------------------------------------------------
- *  A PLAIN-OLD-DATA ("POD") Container for 2D Coordinates (eventually we'll use
- *a library for this)
+ *  CREATE A PLAIN-OLD-DATA ("POD") Container for 2D Coordinates
  *-----------------------------------------------------------------------------*/
 struct vec2 {
   vec2(float _x = 0, float _y = 0) : x(_x), y(_y) {}
   float x, y;
+};
+
+/*-----------------------------------------------------------------------------
+ *  CREATE A PLAIN-OLD-DATA ("POD") Container for RGBA values
+ *-----------------------------------------------------------------------------*/
+struct vec4 {
+  vec4(float _r = 1, float _g = 1, float _b = 1, float _a = 1)
+      : r(_r), g(_g), b(_b), a(_a) {}
+  float r, g, b, a;
+};
+
+/*-----------------------------------------------------------------------------
+ *  CREATE A VERTEX OBJECT
+ *-----------------------------------------------------------------------------*/
+struct Vertex {
+  vec2 position;
+  vec4 color;
 };
 
 /*-----------------------------------------------------------------------------
@@ -91,16 +113,15 @@ struct vec2 {
 struct MyApp : public App {
 
   // A Container for Vertices
-  vector<vec2> triangle;
+  vector<Vertex> triangle;
 
   // ID of shader
   GLuint sID;
+
   // ID of Vertex Attribute
-  GLuint positionID;
+  GLuint positionID, colorID;
   // A buffer ID
-  GLuint bufferID;
-  // A Vertex Array ID
-  GLuint arrayID;
+  GLuint arrayID, bufferID;
 
   // Constructor (initialize application)
   MyApp() { init(); }
@@ -108,9 +129,12 @@ struct MyApp : public App {
   void init() {
 
     // Specify the 3 VERTICES of A Triangle
-    triangle.push_back(vec2(-1, -.5));
-    triangle.push_back(vec2(0, 1));
-    triangle.push_back(vec2(1, -.5));
+    Vertex v1 = {vec2(-1, -.5), vec4(1, 0, 0, 1)};
+    Vertex v2 = {vec2(0, 1), vec4(0, 1, 0, 1)};
+    Vertex v3 = {vec2(1, -.5), vec4(0, 0, 1, 1)};
+    triangle.push_back(v1);
+    triangle.push_back(v2);
+    triangle.push_back(v3);
 
     /*-----------------------------------------------------------------------------
      *  CREATE THE SHADER
@@ -146,10 +170,9 @@ struct MyApp : public App {
     // 8. USE PROGRAM
     glUseProgram(sID);
 
-    // Get locations of variables in the program
     positionID = glGetAttribLocation(sID, "position");
+    colorID = glGetAttribLocation(sID, "color");
 
-    // 9. Unbind Program
     glUseProgram(0);
 
     /*-----------------------------------------------------------------------------
@@ -166,34 +189,29 @@ struct MyApp : public App {
     // Bind Array Buffer
     glBindBuffer(GL_ARRAY_BUFFER, bufferID);
     // Send data over buffer to GPU
-    glBufferData(GL_ARRAY_BUFFER, triangle.size() * sizeof(vec2),
-                 triangle.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, triangle.size() * sizeof(Vertex),
+                 &(triangle[0]), GL_STATIC_DRAW);
 
     /*-----------------------------------------------------------------------------
      *  ENABLE VERTEX ATTRIBUTES
      *-----------------------------------------------------------------------------*/
     // Enable Position Attribute
     glEnableVertexAttribArray(positionID);
-    // Tell OpenGL how to handle the buffer of data
-    //                      attrib    num   type     normalize   stride   offset
-    glVertexAttribPointer(positionID, 2, GL_FLOAT, GL_FALSE, sizeof(vec2), 0);
+    // Enable Color Attribute
+    glEnableVertexAttribArray(colorID);
 
-    /*-----------------------------------------------------------------------------
-     *  UNBIND Vertex Array Object and Vertex Buffer Object
-     *-----------------------------------------------------------------------------*/
+    // Tell OpenGL how to handle the buffer of data that is already on the GPU
+    glVertexAttribPointer(positionID, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), 0);
+    glVertexAttribPointer(colorID, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          (void *)sizeof(vec2));
+
     BINDVERTEXARRAY(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
   }
 
   void onDraw() {
-    // Bind Shader and Vertex Array Object
     glUseProgram(sID);
     BINDVERTEXARRAY(arrayID);
-
-    // Draw Triangle
     glDrawArrays(GL_TRIANGLES, 0, 3);
-
-    // Unbind Vertex Array Object and Shader
     BINDVERTEXARRAY(0);
     glUseProgram(0);
   }
