@@ -1,49 +1,201 @@
 #include "./include/glfw_app.hpp"
-#include <math.h>
+
+#include <vector>
+
+// macro to write shader programs inline
+#ifndef GLSL
+#define GLSL(version, A) "#version " #version "\n" #A
+#endif
+
+// macro to pick the right glGenVertexArray function
+#ifndef GENVERTEXARRAYS
+#define GENVERTEXARRAYS(n, id)                                                 \
+  if (GLEW_APPLE_vertex_array_object)                                          \
+    glGenVertexArraysAPPLE(1, id);                                             \
+  else if (GLEW_ARB_vertex_array_object)                                       \
+  glGenVertexArrays(n, id)
+#endif
+
+// macro to pick the right glBindVertexArray function
+#ifndef BINDVERTEXARRAY
+#define BINDVERTEXARRAY(id)                                                    \
+  if (GLEW_APPLE_vertex_array_object)                                          \
+    glBindVertexArrayAPPLE(id);                                                \
+  else if (GLEW_ARB_vertex_array_object)                                       \
+  glBindVertexArray(id)
+#endif
 
 using namespace user;
 
-struct MyApp : App {
-  MyApp() : App() {}
+/*-----------------------------------------------------------------------------
+ *  SOME SHADER CODE
+ *-----------------------------------------------------------------------------*/
+const char *vert =
+    GLSL(120, attribute vec4 position; void main() { gl_Position = position; });
 
-  void drawTriangle() {
-    glBegin(GL_TRIANGLES);
-    glColor3f(1, 0, 0);
-    glVertex3f(-1, 0, 0);
-    glColor3f(0, 1, 0);
-    glVertex3f(0, 1, 0);
-    glColor3f(0, 0, 1);
-    glVertex3f(1, 0, 0);
-    glEnd();
+const char *frag =
+    GLSL(120, void main() { gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0); });
+
+/*-----------------------------------------------------------------------------
+ *  FUNCTION TO CHECK FOR SHADER COMPILER ERRORS
+ *-----------------------------------------------------------------------------*/
+void shaderCompilerCheck(GLuint ID) {
+  GLint comp;
+  glGetShaderiv(ID, GL_COMPILE_STATUS, &comp);
+
+  if (comp == GL_FALSE) {
+    cout << "Shader Compilation FAILED" << endl;
+    GLchar messages[256];
+    glGetShaderInfoLog(ID, sizeof(messages), 0, &messages[0]);
+    cout << messages;
+  }
+}
+
+/*-----------------------------------------------------------------------------
+ *  FUNCTION TO CHECK FOR SHADER LINK ERRORS
+ *-----------------------------------------------------------------------------*/
+void shaderLinkCheck(GLuint ID) {
+  GLint linkStatus, validateStatus;
+  glGetProgramiv(ID, GL_LINK_STATUS, &linkStatus);
+
+  if (linkStatus == GL_FALSE) {
+    cout << "Shader Linking FAILED" << endl;
+    GLchar messages[256];
+    glGetProgramInfoLog(ID, sizeof(messages), 0, &messages[0]);
+    cout << messages;
   }
 
-  void onDraw() override {
-    static float counter = 0.0;
-    counter += .01;
+  glValidateProgram(ID);
+  glGetProgramiv(ID, GL_VALIDATE_STATUS, &validateStatus);
 
-    int width = MyApp::mWindow.mWidth;
-    int height = MyApp::mWindow.mHeight;
+  if (linkStatus == GL_FALSE) {
+    cout << "Shader Validation FAILED" << endl;
+    GLchar messages[256];
+    glGetProgramInfoLog(ID, sizeof(messages), 0, &messages[0]);
+    cout << messages;
+  }
+}
 
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    glOrtho(-(float)width / height, (float)width / height, -1.f, 1.f, 1.f,
-            -1.f);
+/*-----------------------------------------------------------------------------
+ *  A PLAIN-OLD-DATA ("POD") Container for 2D Coordinates (eventually we'll use
+ *a library for this)
+ *-----------------------------------------------------------------------------*/
+struct vec2 {
+  vec2(float _x = 0, float _y = 0) : x(_x), y(_y) {}
+  float x, y;
+};
 
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
+/*-----------------------------------------------------------------------------
+ *  OUR APP
+ *-----------------------------------------------------------------------------*/
+struct MyApp : public App {
 
-    for (int i = 0; i < 10; i++) {
-      float t = (float)i / 10;
-      glPushMatrix();
+  // A Container for Vertices
+  vector<vec2> triangle;
 
-      glTranslatef(t * sin(counter), 0, 0);
-      glRotatef(360 * t * counter, 0, 0, 1);
-      glScalef(1 - t, 1 - t, 1 - t);
+  // ID of shader
+  GLuint sID;
+  // ID of Vertex Attribute
+  GLuint positionID;
+  // A buffer ID
+  GLuint bufferID;
+  // A Vertex Array ID
+  GLuint arrayID;
 
-      drawTriangle();
+  // Constructor (initialize application)
+  MyApp() { init(); }
 
-      glPopMatrix();
-    }
+  void init() {
+
+    // Specify the 3 VERTICES of A Triangle
+    triangle.push_back(vec2(-1, -.5));
+    triangle.push_back(vec2(0, 1));
+    triangle.push_back(vec2(1, -.5));
+
+    /*-----------------------------------------------------------------------------
+     *  CREATE THE SHADER
+     *-----------------------------------------------------------------------------*/
+
+    // 1. CREATE SHADER PROGRAM
+    sID = glCreateProgram();
+    GLuint vID = glCreateShader(GL_VERTEX_SHADER);
+    GLuint fID = glCreateShader(GL_FRAGMENT_SHADER);
+
+    // 2. LOAD SHADER SOURCE CODE
+    glShaderSource(vID, 1, &vert, NULL);
+    glShaderSource(fID, 1, &frag, NULL);
+
+    // 3. COMPILE
+    glCompileShader(vID);
+    glCompileShader(fID);
+
+    // 4. CHECK FOR COMPILE ERRORS
+    shaderCompilerCheck(vID);
+    shaderCompilerCheck(fID);
+
+    // 5. ATTACH SHADERS TO PROGRAM
+    glAttachShader(sID, vID);
+    glAttachShader(sID, fID);
+
+    // 6. LINK PROGRAM
+    glLinkProgram(sID);
+
+    // 7. CHECK FOR LINKING ERRORS
+    shaderLinkCheck(sID);
+
+    // 8. USE PROGRAM
+    glUseProgram(sID);
+
+    // Get locations of variables in the program
+    positionID = glGetAttribLocation(sID, "position");
+
+    // 9. Unbind Program
+    glUseProgram(0);
+
+    /*-----------------------------------------------------------------------------
+     *  CREATE THE VERTEX ARRAY OBJECT
+     *-----------------------------------------------------------------------------*/
+    GENVERTEXARRAYS(1, &arrayID);
+    BINDVERTEXARRAY(arrayID);
+
+    /*-----------------------------------------------------------------------------
+     *  CREATE THE VERTEX BUFFER OBJECT
+     *-----------------------------------------------------------------------------*/
+    // Generate one buffer
+    glGenBuffers(1, &bufferID);
+    // Bind Array Buffer
+    glBindBuffer(GL_ARRAY_BUFFER, bufferID);
+    // Send data over buffer to GPU
+    glBufferData(GL_ARRAY_BUFFER, triangle.size() * sizeof(vec2),
+                 triangle.data(), GL_STATIC_DRAW);
+
+    /*-----------------------------------------------------------------------------
+     *  ENABLE VERTEX ATTRIBUTES
+     *-----------------------------------------------------------------------------*/
+    // Enable Position Attribute
+    glEnableVertexAttribArray(positionID);
+    // Tell OpenGL how to handle the buffer of data
+    //                      attrib    num   type     normalize   stride   offset
+    glVertexAttribPointer(positionID, 2, GL_FLOAT, GL_FALSE, sizeof(vec2), 0);
+
+    /*-----------------------------------------------------------------------------
+     *  UNBIND Vertex Array Object and Vertex Buffer Object
+     *-----------------------------------------------------------------------------*/
+    BINDVERTEXARRAY(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+  }
+
+  void onDraw() {
+    // Bind Shader and Vertex Array Object
+    glUseProgram(sID);
+    BINDVERTEXARRAY(arrayID);
+
+    // Draw Triangle
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // Unbind Vertex Array Object and Shader
+    BINDVERTEXARRAY(0);
+    glUseProgram(0);
   }
 
   void onMouseMove(int x, int y) override { cout << x << " " << y << endl; }
